@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+type QueryPieces map[string][]string
+
 // URI represents a general RFC3986 specified URI.
 type URI interface {
 	// Scheme is the scheme the URI conforms to.
@@ -16,7 +18,7 @@ type URI interface {
 
 	// QueryPieces returns a map of key/value pairs of all parameters
 	// in the query string of the URI.
-	QueryPieces() map[string]string
+	QueryPieces() QueryPieces
 
 	// Fragment returns the fragement (component proceeded by '#') in the
 	// URI if there is one.
@@ -63,6 +65,7 @@ func ParseURI(raw string) (URI, error) {
 	}
 
 	scheme := raw[curr:schemeEnd]
+
 	curr = schemeEnd + 1
 
 	if hierPartEnd == len(raw) || (hierPartEnd < 0 && queryEnd < 0) {
@@ -70,6 +73,7 @@ func ParseURI(raw string) (URI, error) {
 			scheme:    scheme,
 			hierPart:  raw[curr:], // since it's all that's left
 			authority: parseAuthority(raw[curr:]),
+			queryPieces: make(QueryPieces),
 		}, nil
 	}
 
@@ -95,11 +99,18 @@ func ParseURI(raw string) (URI, error) {
 			hierPart = raw[hierPartEnd+1 : queryEnd]
 			authorityInfo = parseAuthority(hierPart)
 		}
+
+		queryPieces, err := parseQueryPieces(query)
+		if err != nil {
+			return nil, err
+		}
+
 		return &uri{
 			scheme:    scheme,
 			hierPart:  hierPart,
 			authority: authorityInfo,
 			query:     query,
+			queryPieces: queryPieces,
 		}, nil
 	} else if queryEnd > 0 {
 		if hierPartEnd < 0 {
@@ -113,12 +124,18 @@ func ParseURI(raw string) (URI, error) {
 		}
 	}
 
+	queryPieces, err := parseQueryPieces(query)
+	if err != nil {
+		return nil, err
+	}
+
 	return &uri{
 		scheme:    scheme,
 		hierPart:  hierPart,
 		query:     query,
 		fragment:  fragment,
 		authority: authorityInfo,
+		queryPieces: queryPieces,
 	}, nil
 }
 
@@ -131,6 +148,7 @@ type uri struct {
 
 	// parsed components
 	authority *authorityInfo
+	queryPieces QueryPieces
 }
 
 func (u *uri) Scheme() string {
@@ -141,8 +159,8 @@ func (u *uri) Authority() Authority {
 	return u.authority
 }
 
-func (u *uri) QueryPieces() map[string]string {
-	return nil
+func (u *uri) QueryPieces() QueryPieces {
+	return u.queryPieces
 }
 
 func (u *uri) Fragment() string {
@@ -234,6 +252,29 @@ func parseAuthority(hier string) *authorityInfo {
 		port:     port,
 		path:     path,
 	}
+}
+
+func parseQueryPieces(query string) (QueryPieces, error)  {
+	values := make(QueryPieces)
+
+	for query != "" {
+		key := query
+		if i := strings.IndexAny(key, "&;"); i >= 0 {
+			key, query = key[:i], key[i+1:]
+		} else {
+			query = ""
+		}
+		if key == "" {
+			continue
+		}
+		value := ""
+		if i := strings.Index(key, "="); i >= 0 {
+			key, value = key[:i], key[i+1:]
+		}
+
+		values[key] = append(values[key], value)
+	}
+	return values, nil
 }
 
 // Builder time!
